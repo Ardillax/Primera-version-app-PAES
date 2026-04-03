@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from datetime import datetime
 from pathlib import Path
 import io
@@ -19,38 +20,89 @@ from pipeline import (
 )
 from template_service import build_input_templates
 
-st.set_page_config(page_title='Scan Respuestas PAES', page_icon='📝', layout='wide')
+
+st.set_page_config(
+    page_title="Plataforma PAES M2",
+    page_icon="📘",
+    layout="wide",
+)
+
+st.markdown(
+    """
+    <style>
+        .block-container {
+            padding-top: 1.4rem;
+            padding-bottom: 2rem;
+            max-width: 1200px;
+        }
+        .main-title {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 0.2rem;
+        }
+        .subtitle {
+            color: #475569;
+            font-size: 1rem;
+            margin-bottom: 1.2rem;
+        }
+        .section-card {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 1rem 1rem 0.8rem 1rem;
+            margin-bottom: 1rem;
+        }
+        .small-note {
+            color: #64748b;
+            font-size: 0.92rem;
+        }
+        .stButton > button,
+        .stDownloadButton > button {
+            border-radius: 10px;
+            font-weight: 600;
+        }
+        div[data-testid="stFileUploader"] section {
+            border-radius: 12px;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 FORMAT_KEYS = {
-    'pdf': 'format_pdf_bytes',
-    'pdf_name': 'format_pdf_name',
-    'inscritos': 'format_inscritos_bytes',
-    'inscritos_name': 'format_inscritos_name',
-    'instrumento': 'format_instrumento_bytes',
-    'instrumento_name': 'format_instrumento_name',
+    "pdf": "format_pdf_bytes",
+    "pdf_name": "format_pdf_name",
+    "inscritos": "format_inscritos_bytes",
+    "inscritos_name": "format_inscritos_name",
+    "instrumento": "format_instrumento_bytes",
+    "instrumento_name": "format_instrumento_name",
 }
+
 RESULT_KEYS = {
-    'resultados': 'resultados_bytes',
-    'resultados_name': 'resultados_name',
-    'consolidado': 'consolidado_bytes',
-    'consolidado_name': 'consolidado_name',
-    'reportes': 'reportes_zip_bytes',
-    'reportes_name': 'reportes_zip_name',
-    'debug': 'debug_zip_bytes',
-    'debug_name': 'debug_zip_name',
+    "resultados": "resultados_bytes",
+    "resultados_name": "resultados_name",
+    "consolidado": "consolidado_bytes",
+    "consolidado_name": "consolidado_name",
+    "reportes": "reportes_zip_bytes",
+    "reportes_name": "reportes_zip_name",
+    "debug": "debug_zip_bytes",
+    "debug_name": "debug_zip_name",
 }
 
 
 def make_session_workspace() -> Path:
-    if 'workspace_dir' not in st.session_state:
-        st.session_state.workspace_dir = str(Path(tempfile.mkdtemp(prefix='scan_respuestas_')))
+    if "workspace_dir" not in st.session_state:
+        st.session_state.workspace_dir = str(
+            Path(tempfile.mkdtemp(prefix="scan_respuestas_"))
+        )
     return Path(st.session_state.workspace_dir)
 
 
 def zip_directory_bytes(source_dir: Path) -> bytes:
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for file in source_dir.rglob('*'):
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file in source_dir.rglob("*"):
             if file.is_file():
                 zf.write(file, arcname=file.relative_to(source_dir))
     return buffer.getvalue()
@@ -61,17 +113,100 @@ def detect_duplicate_ruts(inscritos_path: Path) -> pd.DataFrame:
         df = pd.read_excel(inscritos_path)
     except Exception:
         df = pd.read_csv(inscritos_path)
+
     candidate = None
     for col in df.columns:
         norm = str(col).strip().lower()
-        if 'rut' in norm:
+        if "rut" in norm:
             candidate = col
             break
+
     if candidate is None:
         return pd.DataFrame()
-    ruts = df[candidate].astype(str).str.upper().str.replace(r'[^0-9K]', '', regex=True)
-    ruts = ruts.where(ruts.str.len() > 1, '')
-    normalized = ruts.where(ruts == '', ruts.str[:-1] + '-' + ruts.str[-1])
+
+    ruts = (
+        df[candidate]
+        .astype(str)
+        .str.upper()
+        .str.replace(r"[^0-9K]", "", regex=True)
+    )
+    ruts = ruts.where(ruts.str.len() > 1, "")
+    normalized = ruts.where(ruts == "", ruts.str[:-1] + "-" + ruts.str[-1])
+
+    out = normalized.value_counts().reset_index()
+    out.columns = ["rut_normalizado", "veces"]
+    return out[out["veces"] > 1]
+
+
+def set_format_downloads(
+    pdf_path: Path,
+    template_inscritos: Path,
+    template_instrumento: Path,
+) -> None:
+    if not pdf_path.exists():
+        raise FileNotFoundError(f"No se encontró el PDF generado: {pdf_path}")
+    if not template_inscritos.exists():
+        raise FileNotFoundError(
+            f"No se encontró la plantilla de inscritos: {template_inscritos}"
+        )
+    if not template_instrumento.exists():
+        raise FileNotFoundError(
+            f"No se encontró la plantilla de instrumento: {template_instrumento}"
+        )
+
+    st.session_state[FORMAT_KEYS["pdf"]] = pdf_path.read_bytes()
+    st.session_state[FORMAT_KEYS["pdf_name"]] = pdf_path.name
+    st.session_state[FORMAT_KEYS["inscritos"]] = template_inscritos.read_bytes()
+    st.session_state[FORMAT_KEYS["inscritos_name"]] = template_inscritos.name
+    st.session_state[FORMAT_KEYS["instrumento"]] = template_instrumento.read_bytes()
+    st.session_state[FORMAT_KEYS["instrumento_name"]] = template_instrumento.name
+
+
+def show_format_downloads() -> None:
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        if FORMAT_KEYS["pdf"] in st.session_state:
+            st.download_button(
+                "Descargar hoja de respuestas",
+                st.session_state[FORMAT_KEYS["pdf"]],
+                file_name=st.session_state[FORMAT_KEYS["pdf_name"]],
+                mime="application/pdf",
+                use_container_width=True,
+            )
+
+    with c2:
+        if FORMAT_KEYS["inscritos"] in st.session_state:
+            st.download_button(
+                "Descargar plantilla Inscritos",
+                st.session_state[FORMAT_KEYS["inscritos"]],
+                file_name=st.session_state[FORMAT_KEYS["inscritos_name"]],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+
+    with c3:
+        if FORMAT_KEYS["instrumento"] in st.session_state:
+            st.download_button(
+                "Descargar plantilla Instrumento",
+                st.session_state[FORMAT_KEYS["instrumento"]],
+                file_name=st.session_state[FORMAT_KEYS["instrumento_name"]],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+
+
+def set_result_downloads(
+    resultados_path: Path | None,
+    consolidados_path: Path | None,
+    report_dir: Path | None,
+    debug_dir: Path | None,
+) -> None:
+    if resultados_path and resultados_path.exists():
+        st.session_state[RESULT_KEYS["resultados"]] = resultados_path.read_bytes()
+        st.session_state[RESULT_KEYS["resultados_name"]] = resultados_path.name
+
+    if consolidados_path    normalized = ruts.where(ruts == '', ruts.str[:-1] + '-' + ruts.str[-1])
     out = normalized.value_counts().reset_index()
     out.columns = ['rut_normalizado', 'veces']
     return out[out['veces'] > 1]
@@ -157,20 +292,11 @@ def show_result_downloads() -> None:
 
 
 def main() -> None:
-    st.title('Scan Respuestas PAES')
-    st.write('Genera formatos, procesa scans OMR y consolida resultados en un solo flujo.')
+    st.title('Plataforma de corrección PAES M2')
+    
+    tab1, tab2 = st.tabs(['Formatos', 'Procesar'])
     workspace_dir = make_session_workspace()
     paths = prepare_workspace(workspace_dir)
-
-    with st.sidebar:
-        st.subheader('Sesión')
-        st.caption('En despliegue web, la app no dependerá de tu PC encendido.')
-        if st.button('Limpiar sesión'):
-            shutil.rmtree(workspace_dir, ignore_errors=True)
-            st.session_state.clear()
-            st.rerun()
-
-    tab1, tab2 = st.tabs(['1. Formatos', '2. Procesar scans y consolidar'])
 
     with tab1:
         st.subheader('Formatos')
@@ -253,8 +379,6 @@ def main() -> None:
                 st.success('Proceso completado.')
 
         show_result_downloads()
-
-    st.info('Cuando la app se despliegue en Streamlit Community Cloud, podrás compartir una URL y ya no dependerá de tu PC encendido.')
 
 
 if __name__ == '__main__':
